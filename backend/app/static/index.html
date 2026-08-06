@@ -1,0 +1,1684 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Hostel Visitor Management System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; }
+    h1, h2, h3, h4, h5, h6, .font-heading { font-family: 'Outfit', sans-serif; }
+    .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-card { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.07); transition: all 0.25s ease; }
+    .glass-card:hover { border-color: rgba(99, 102, 241, 0.3); transform: translateY(-2px); box-shadow: 0 12px 30px -10px rgba(99, 102, 241, 0.2); }
+    @keyframes overstay-glow {
+      0%, 100% { border-color: rgba(239, 68, 68, 0.8); box-shadow: 0 0 18px rgba(239, 68, 68, 0.35); }
+      50% { border-color: rgba(239, 68, 68, 0.3); box-shadow: 0 0 6px rgba(239, 68, 68, 0.15); }
+    }
+    .overstay-row-highlight { animation: overstay-glow 2s infinite ease-in-out; background: rgba(127, 29, 29, 0.25) !important; }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.6)); }
+      50% { opacity: 0.8; filter: drop-shadow(0 0 16px rgba(99, 102, 241, 0.9)); }
+    }
+    .shield-glow { animation: pulse-glow 3s infinite ease-in-out; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen selection:bg-indigo-500 selection:text-white">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const API_BASE = window.location.origin;
+
+    // Axios client with JWT header interceptor
+    const client = axios.create({ baseURL: API_BASE });
+    client.interceptors.request.use((config) => {
+      const token = localStorage.getItem('hostel_jwt_token');
+      if (token) config.headers.Authorization = `Bearer ${token}`;
+      return config;
+    });
+
+    const GOV_ID_PATTERNS = {
+      AADHAAR: { pattern: /^\d{12}$/, example: '12 Digits (e.g. 123456789012)' },
+      PAN: { pattern: /^[A-Z]{5}\d{4}[A-Z]$/, example: 'e.g. ABCDE1234F' },
+      PASSPORT: { pattern: /^[A-Z]{1}\d{7}$/, example: 'e.g. A1234567' },
+      DL: { pattern: /^[A-Z]{2}\d{2}\s?\d{11}$/, example: 'e.g. DL0120201234567' },
+    };
+
+    function App() {
+      const [user, setUser] = useState(() => {
+        const s = localStorage.getItem('hostel_user_data');
+        return s ? JSON.parse(s) : null;
+      });
+      
+      const [view, setView] = useState('landing'); // landing, request-pass, track-pass, student-login, staff-login, student, security, admin
+      const [qrModalPass, setQrModalPass] = useState(null);
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+      const loginUser = (userData, token) => {
+        localStorage.setItem('hostel_jwt_token', token);
+        localStorage.setItem('hostel_user_data', JSON.stringify(userData));
+        setUser(userData);
+        if (userData.role === 'STUDENT') setView('student');
+        else if (userData.role === 'SECURITY') setView('security');
+        else if (userData.role === 'ADMIN') setView('admin');
+      };
+
+      const logoutUser = () => {
+        localStorage.removeItem('hostel_jwt_token');
+        localStorage.removeItem('hostel_user_data');
+        setUser(null);
+        setView('landing');
+      };
+
+      const updateUser = (fields) => {
+        setUser(prev => {
+          const updated = { ...prev, ...fields };
+          localStorage.setItem('hostel_user_data', JSON.stringify(updated));
+          return updated;
+        });
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col font-sans bg-slate-950">
+          
+          {/* Brand Identity Header Navbar */}
+          <nav className="glass-panel sticky top-0 z-50 border-b border-slate-800 backdrop-blur-md">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between h-16">
+                
+                {/* Logo & Brand: HostelShield */}
+                <div className="flex items-center gap-3 cursor-pointer group" onClick={() => { setView('landing'); setMobileMenuOpen(false); }}>
+                  <div className="relative flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-600 to-emerald-500 p-0.5 shadow-lg shadow-indigo-500/25 shield-glow">
+                      <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                        <svg className="w-5 h-5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                          <circle cx="12" cy="10" r="1.5" fill="currentColor" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-heading font-extrabold text-lg text-white tracking-tight leading-none group-hover:text-indigo-400 transition-colors">
+                      Hostel<span className="text-indigo-400">Shield</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-medium">Smart Visitor Management</div>
+                  </div>
+                </div>
+
+                {/* Desktop Nav Bar Center Links */}
+                <div className="hidden md:flex items-center gap-2">
+                  <button
+                    onClick={() => setView('landing')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      view === 'landing' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    🏠 Home
+                  </button>
+
+                  <button
+                    onClick={() => setView('request-pass')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      view === 'request-pass' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    📋 Apply Visitor Pass
+                  </button>
+
+                  <button
+                    onClick={() => setView('track-pass')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      view === 'track-pass' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    🔍 Track Pass Key
+                  </button>
+
+                  {user && (
+                    <button
+                      onClick={() => setView(user.role === 'STUDENT' ? 'student' : user.role === 'SECURITY' ? 'security' : 'admin')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20"
+                    >
+                      Dashboard ({user.role})
+                    </button>
+                  )}
+                </div>
+
+                {/* Desktop Right Action */}
+                <div className="hidden md:flex items-center gap-3">
+                  {user ? (
+                    <div className="flex items-center gap-3">
+                      {user.role === 'STUDENT' && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const ns = !user.is_available;
+                              await client.patch('/students/me/availability', { is_available: ns });
+                              updateUser({ is_available: ns });
+                            } catch(e){}
+                          }}
+                          className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                            user.is_available ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          }`}
+                        >
+                          {user.is_available ? '🟢 Available' : '🔴 Unavailable'}
+                        </button>
+                      )}
+
+                      <span className="text-xs font-semibold text-slate-300 hidden sm:inline">
+                        {user.full_name} ({user.role})
+                      </span>
+
+                      <button onClick={logoutUser} className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all">
+                        Logout
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setView('student-login')} className="text-xs font-semibold text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800">
+                        Student Portal
+                      </button>
+                      <button onClick={() => setView('staff-login')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-3.5 py-1.5 rounded-xl shadow-lg shadow-indigo-600/20 border border-indigo-400/30">
+                        Staff Gateway
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Mobile Responsive Hamburger Button */}
+                <div className="md:hidden flex items-center">
+                  <button
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                    className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/60"
+                  >
+                    {mobileMenuOpen ? '✕' : '☰'}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Mobile Responsive Dropdown Menu */}
+            {mobileMenuOpen && (
+              <div className="md:hidden bg-slate-900/95 border-b border-slate-800 px-4 pt-3 pb-6 space-y-3 backdrop-blur-xl">
+                <button
+                  onClick={() => { setView('landing'); setMobileMenuOpen(false); }}
+                  className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  🏠 Home
+                </button>
+
+                <button
+                  onClick={() => { setView('request-pass'); setMobileMenuOpen(false); }}
+                  className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  📋 Apply Visitor Pass
+                </button>
+
+                <button
+                  onClick={() => { setView('track-pass'); setMobileMenuOpen(false); }}
+                  className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  🔍 Track Pass Key
+                </button>
+
+                {user ? (
+                  <div className="pt-2 border-t border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-xs px-3">
+                      <span className="text-slate-400">{user.full_name} ({user.role})</span>
+                      {user.role === 'STUDENT' && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const ns = !user.is_available;
+                              await client.patch('/students/me/availability', { is_available: ns });
+                              updateUser({ is_available: ns });
+                            } catch(e){}
+                          }}
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            user.is_available ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                          }`}
+                        >
+                          {user.is_available ? '🟢 Available' : '🔴 Unavailable'}
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setView(user.role === 'STUDENT' ? 'student' : user.role === 'SECURITY' ? 'security' : 'admin');
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full text-center py-2 rounded-xl bg-purple-600/20 text-purple-300 font-bold text-xs border border-purple-500/30"
+                    >
+                      Go to Dashboard ({user.role})
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        logoutUser();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full text-center py-2 rounded-xl bg-rose-500/10 text-rose-300 font-bold text-xs border border-rose-500/20"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => { setView('student-login'); setMobileMenuOpen(false); }}
+                      className="py-2.5 rounded-xl bg-slate-800 text-slate-200 font-semibold text-xs border border-slate-700"
+                    >
+                      Student Portal
+                    </button>
+                    <button
+                      onClick={() => { setView('staff-login'); setMobileMenuOpen(false); }}
+                      className="py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs"
+                    >
+                      Staff Gateway
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </nav>
+
+          {/* Main View Router */}
+          <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+            {view === 'landing' && <LandingView setView={setView} />}
+            {view === 'request-pass' && <PublicPassView setView={setView} />}
+            {view === 'track-pass' && <VisitorTrackPassView setView={setView} />}
+            {view === 'student-login' && <StudentLoginView onLogin={loginUser} setView={setView} />}
+            {view === 'staff-login' && <StaffLoginView onLogin={loginUser} setView={setView} />}
+            {view === 'student' && user?.role === 'STUDENT' && <StudentView user={user} setQrModalPass={setQrModalPass} />}
+            {view === 'security' && (user?.role === 'SECURITY' || user?.role === 'ADMIN') && <SecurityView />}
+            {view === 'admin' && user?.role === 'ADMIN' && <AdminView />}
+          </main>
+
+          {/* QR Code Modal */}
+          {qrModalPass && <QrModal pass={qrModalPass} onClose={() => setQrModalPass(null)} />}
+        </div>
+      );
+    }
+
+    // 1. COVER PAGE HOME (INITIAL DEFAULT VIEW)
+    function LandingView({ setView }) {
+      return (
+        <div className="space-y-12 py-6 relative">
+          
+          {/* HERO SECTION */}
+          <div className="text-center max-w-4xl mx-auto space-y-6 pt-4 pb-4">
+            
+            {/* Hero Main Heading */}
+            <h1 className="text-4xl sm:text-6xl font-extrabold font-heading tracking-tight text-white leading-tight">
+              Smart, Secure & Frictionless <br className="hidden sm:inline" />
+              <span className="bg-gradient-to-r from-indigo-400 via-purple-300 to-emerald-400 bg-clip-text text-transparent">
+                Hostel Visitor Management
+              </span>
+            </h1>
+
+            {/* Hero Subtitle */}
+            <p className="text-base sm:text-xl text-slate-300 max-w-2xl mx-auto font-normal leading-relaxed">
+              Eliminate gate queues, verify digital passes, track overstays, and broadcast emergency alerts in real time.
+            </p>
+
+          </div>
+
+          {/* 4 INTERACTIVE QUICK-ACCESS GATEWAY CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            
+            {/* Gateway Card 1 */}
+            <div
+              onClick={() => setView('student-login')}
+              className="cursor-pointer group glass-card p-6 rounded-2xl border border-slate-800 hover:border-indigo-500/50 flex flex-col justify-between transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/10 relative overflow-hidden"
+            >
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mb-4 text-2xl group-hover:scale-110 transition-transform">
+                  🎓
+                </div>
+                <h3 className="text-lg font-bold text-white font-heading mb-2 group-hover:text-indigo-400 transition-colors">
+                  Resident Student Portal
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Student Login & Registration. Review incoming visitor pass requests, grant passes, and toggle availability.
+                </p>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-indigo-400 group-hover:translate-x-1 transition-transform">
+                <span>Student Login / Signup &rarr;</span>
+              </div>
+            </div>
+
+            {/* Gateway Card 2 */}
+            <div
+              onClick={() => setView('staff-login')}
+              className="cursor-pointer group glass-card p-6 rounded-2xl border border-slate-800 hover:border-purple-500/50 flex flex-col justify-between transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/10 relative overflow-hidden"
+            >
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center mb-4 text-2xl group-hover:scale-110 transition-transform">
+                  🛡️
+                </div>
+                <h3 className="text-lg font-bold text-white font-heading mb-2 group-hover:text-purple-400 transition-colors">
+                  Staff & Security Gateway
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Role-switched login for Security Gate Desk & Warden Admin with 1-click Emergency Broadcast.
+                </p>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-purple-400 group-hover:translate-x-1 transition-transform">
+                <span>Gate & Warden Login &rarr;</span>
+              </div>
+            </div>
+
+            {/* Gateway Card 3 */}
+            <div
+              onClick={() => setView('request-pass')}
+              className="cursor-pointer group glass-card p-6 rounded-2xl border border-slate-800 hover:border-emerald-500/50 flex flex-col justify-between transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/10 relative overflow-hidden"
+            >
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mb-4 text-2xl group-hover:scale-110 transition-transform">
+                  📋
+                </div>
+                <h3 className="text-lg font-bold text-white font-heading mb-2 group-hover:text-emerald-400 transition-colors">
+                  Apply for Visitor Pass
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Public visitor pass application form. Submit details, select host student, and enter Govt ID number.
+                </p>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-emerald-400 group-hover:translate-x-1 transition-transform">
+                <span>Submit Visit Request &rarr;</span>
+              </div>
+            </div>
+
+            {/* Gateway Card 4 */}
+            <div
+              onClick={() => setView('track-pass')}
+              className="cursor-pointer group glass-card p-6 rounded-2xl border border-slate-800 hover:border-sky-500/50 flex flex-col justify-between transition-all duration-300 hover:shadow-xl hover:shadow-sky-500/10 relative overflow-hidden"
+            >
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center mb-4 text-2xl group-hover:scale-110 transition-transform">
+                  🔍
+                </div>
+                <h3 className="text-lg font-bold text-white font-heading mb-2 group-hover:text-sky-400 transition-colors">
+                  Track My Visitor Pass
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Public pass status portal. Enter visitor name and 10-digit mobile number to get unique Pass Key Code & QR Code.
+                </p>
+              </div>
+              <div className="flex items-center text-xs font-semibold text-sky-400 group-hover:translate-x-1 transition-transform">
+                <span>Track Pass & Get Key &rarr;</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      );
+    }
+
+    // 2. PUBLIC VISITOR PASS STATUS TRACKING VIEW (WITH 404 VALIDATION & QR CODE)
+    function VisitorTrackPassView({ setView }) {
+      const [fullName, setFullName] = useState('');
+      const [phone, setPhone] = useState('');
+      const [phoneErr, setPhoneErr] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [errDetail, setErrDetail] = useState('');
+      const [passData, setPassData] = useState(null);
+
+      const validatePhone = (v) => {
+        const cleaned = v.replace(/\D/g, '').slice(0, 10);
+        setPhone(cleaned);
+        if (cleaned.length > 0 && !/^[6-9]\d{9}$/.test(cleaned)) {
+          setPhoneErr('Must be a valid 10-digit mobile number starting with 6-9');
+        } else {
+          setPhoneErr('');
+        }
+      };
+
+      const handleLookup = async (e) => {
+        e.preventDefault();
+        setErrDetail('');
+        setPassData(null);
+
+        if (!/^[6-9]\d{9}$/.test(phone)) {
+          setPhoneErr('Must be a valid 10-digit mobile number starting with 6-9');
+          return;
+        }
+
+        setLoading(true);
+        try {
+          const res = await client.post('/visitor/track-pass', {
+            full_name: fullName.trim(),
+            phone: phone.trim()
+          });
+          setPassData(res.data);
+        } catch (err) {
+          let d = err.response?.data?.detail;
+          if (typeof d !== 'string' && Array.isArray(d)) {
+            d = d.map(x => x.msg?.replace('Value error, ', '') || 'Invalid input').join(', ');
+          }
+          setErrDetail(d || 'No visitor request found for the provided Name and Phone number. Please check details or submit a new request.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="max-w-xl mx-auto space-y-6 py-6">
+          <div className="text-center space-y-2">
+            <h2 className="text-3xl font-extrabold font-heading text-white">Track My Visitor Pass Key</h2>
+            <p className="text-xs text-slate-400">Enter your exact full name and 10-digit registered phone number to view pass status and gate QR code.</p>
+          </div>
+
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4">
+            <form onSubmit={handleLookup} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase">Visitor Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Priya Nair"
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase">10-Digit Mobile Phone *</label>
+                <input
+                  type="tel"
+                  required
+                  pattern="[6-9][0-9]{9}"
+                  maxLength={10}
+                  inputMode="numeric"
+                  placeholder="e.g. 9812345678"
+                  value={phone}
+                  onChange={e => validatePhone(e.target.value)}
+                  className={`w-full bg-slate-950 border rounded-xl px-4 py-2.5 text-sm text-white ${phoneErr ? 'border-rose-500' : 'border-slate-800'}`}
+                />
+                {phoneErr ? <p className="text-[11px] text-rose-400 mt-1 font-medium">{phoneErr}</p> : <p className="text-[11px] text-slate-500 mt-1">10 digits starting with 6-9</p>}
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || phone.length !== 10 || !fullName}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 rounded-xl text-sm shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+              >
+                {loading ? 'Searching Database...' : 'Look Up Pass Status & Key'}
+              </button>
+            </form>
+
+            {/* 404 ERROR ALERT */}
+            {errDetail && (
+              <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs space-y-2">
+                <div className="font-bold text-rose-300">⚠️ Request Lookup Error</div>
+                <div>{errDetail}</div>
+                <button onClick={() => setView('request-pass')} className="text-indigo-400 font-bold underline text-xs">
+                  Apply for a New Visitor Pass &rarr;
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* PASS DETAILS & PASS KEY CARD */}
+          {passData && (
+            <div className="glass-panel p-6 rounded-3xl border border-indigo-500/40 shadow-2xl bg-slate-900 space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+                <div>
+                  <div className="text-xs text-slate-400 uppercase font-semibold">Official Visitor Pass</div>
+                  <div className="text-xl font-bold text-white font-heading">{passData.visitor_name}</div>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  {passData.status}
+                </span>
+              </div>
+
+              {passData.pass_code ? (
+                <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 p-6 rounded-2xl border border-indigo-500/40 text-center space-y-3">
+                  <div className="text-xs uppercase font-extrabold text-indigo-300 tracking-widest">Gate Verification Pass Key</div>
+                  <div className="text-4xl font-black font-heading tracking-widest text-white">{passData.pass_code}</div>
+                  <div className="text-[11px] text-slate-400">Present this key code to the gate security guard for check-in.</div>
+
+                  {/* VISUAL QR CODE DEMO */}
+                  <div className="pt-2 flex justify-center">
+                    <div className="bg-white p-3 rounded-2xl inline-block shadow-lg">
+                      <svg className="w-28 h-28" viewBox="0 0 100 100">
+                        <rect width="100" height="100" fill="white"/>
+                        <rect x="5" y="5" width="30" height="30" fill="black"/>
+                        <rect x="10" y="10" width="20" height="20" fill="white"/>
+                        <rect x="15" y="15" width="10" height="10" fill="black"/>
+                        <rect x="65" y="5" width="30" height="30" fill="black"/>
+                        <rect x="70" y="10" width="20" height="20" fill="white"/>
+                        <rect x="75" y="15" width="10" height="10" fill="black"/>
+                        <rect x="5" y="65" width="30" height="30" fill="black"/>
+                        <rect x="10" y="70" width="20" height="20" fill="white"/>
+                        <rect x="15" y="75" width="10" height="10" fill="black"/>
+                        <rect x="40" y="10" width="15" height="10" fill="black"/>
+                        <rect x="45" y="25" width="10" height="15" fill="black"/>
+                        <rect x="65" y="40" width="20" height="10" fill="black"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs rounded-xl text-center">
+                  Pass Key Code will be generated once your host student approves the visit.
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 font-semibold mb-1">Host Student</div>
+                  <div className="text-white font-bold">{passData.student_name}</div>
+                  <div className="text-slate-400 text-[11px]">Room {passData.student_room} ({passData.student_block})</div>
+                </div>
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 font-semibold mb-1">Duration</div>
+                  <div className="text-white font-bold">{passData.expected_duration_minutes} Mins</div>
+                  <div className="text-slate-400 text-[11px]">{passData.purpose}</div>
+                </div>
+              </div>
+
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 3. STUDENT PORTAL LOGIN & REGISTRATION
+    function StudentLoginView({ onLogin, setView }) {
+      const [isRegister, setIsRegister] = useState(false);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [fullName, setFullName] = useState('');
+      const [phone, setPhone] = useState('');
+      const [roomNo, setRoomNo] = useState('');
+      const [hostelBlock, setHostelBlock] = useState('Block A');
+      const [phoneErr, setPhoneErr] = useState('');
+
+      const [err, setErr] = useState('');
+      const [success, setSuccess] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const validatePhone = (v) => {
+        const cleaned = v.replace(/\D/g, '').slice(0, 10);
+        setPhone(cleaned);
+        if (cleaned.length > 0 && !/^[6-9]\d{9}$/.test(cleaned)) {
+          setPhoneErr('Must be a valid 10-digit mobile number starting with 6-9');
+        } else {
+          setPhoneErr('');
+        }
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setErr(''); setSuccess('');
+
+        if (isRegister) {
+          if (!/^[6-9]\d{9}$/.test(phone)) { setPhoneErr('Must be a valid 10-digit mobile number starting with 6-9'); return; }
+          setLoading(true);
+          try {
+            await client.post('/auth/register-student', {
+              full_name: fullName,
+              email: email.trim().toLowerCase(),
+              password: password,
+              phone: phone,
+              room_no: roomNo,
+              hostel_block: hostelBlock
+            });
+            setSuccess('Account Created! Pending Warden approval. You can log in once your warden approves your account.');
+            setIsRegister(false); setPassword('');
+          } catch (e) {
+            let d = e.response?.data?.detail;
+            if (typeof d !== 'string' && Array.isArray(d)) {
+              d = d.map(x => x.msg?.replace('Value error, ', '') || 'Invalid field').join(', ');
+            }
+            setErr(d || 'Registration failed');
+          } finally { setLoading(false); }
+        } else {
+          setLoading(true);
+          try {
+            const res = await client.post('/auth/login', { email: email.trim().toLowerCase(), password: password });
+            onLogin(res.data.user, res.data.access_token);
+          } catch (e) {
+            if (e.response?.status === 403) {
+              setErr('Registration pending Warden approval');
+            } else {
+              let d = e.response?.data?.detail;
+              setErr(typeof d === 'string' ? d : 'Invalid email or password');
+            }
+          } finally { setLoading(false); }
+        }
+      };
+
+      return (
+        <div className="max-w-md mx-auto py-8 space-y-6">
+          <div className="text-center space-y-2">
+            <h2 className="text-3xl font-extrabold text-white font-heading">Resident Student Portal</h2>
+            <p className="text-xs text-slate-400">Sign in or register your resident student account.</p>
+          </div>
+
+          <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800">
+            <button onClick={() => { setIsRegister(false); setErr(''); setSuccess(''); }} className={`flex-1 py-2 text-xs font-bold rounded-xl ${!isRegister ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+              Student Sign In
+            </button>
+            <button onClick={() => { setIsRegister(true); setErr(''); setSuccess(''); }} className={`flex-1 py-2 text-xs font-bold rounded-xl ${isRegister ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+              New Registration
+            </button>
+          </div>
+
+          {success && <div className="p-4 bg-emerald-500/20 text-emerald-300 text-xs rounded-2xl border border-emerald-500/30 font-medium">{success}</div>}
+          {err && <div className="p-4 bg-rose-500/20 text-rose-300 text-xs rounded-2xl border border-rose-500/30 font-medium">{err}</div>}
+
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl">
+            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+              {isRegister && (
+                <>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Full Name *</label>
+                    <input type="text" required placeholder="e.g. Aarav Sharma" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">10-Digit Mobile Phone *</label>
+                    <input type="tel" required pattern="[6-9][0-9]{9}" maxLength={10} inputMode="numeric" placeholder="e.g. 9876543201" value={phone} onChange={e => validatePhone(e.target.value)} className={`w-full bg-slate-950 border rounded-xl px-4 py-2.5 text-sm text-white ${phoneErr ? 'border-rose-500' : 'border-slate-800'}`} />
+                    {phoneErr && <p className="text-[11px] text-rose-400 mt-1">{phoneErr}</p>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Room No *</label>
+                      <input type="text" required placeholder="101-A" value={roomNo} onChange={e => setRoomNo(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Hostel Block</label>
+                      <select value={hostelBlock} onChange={e => setHostelBlock(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white">
+                        <option value="Block A">Block A</option>
+                        <option value="Block B">Block B</option>
+                        <option value="Block C">Block C</option>
+                        <option value="Block D">Block D</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Email Address *</label>
+                <input type="email" required placeholder="student1@hostel.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white" />
+              </div>
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Password *</label>
+                <input type="password" required placeholder="password123" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white" />
+              </div>
+
+              <button type="submit" disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl text-sm shadow-lg shadow-indigo-600/20">
+                {loading ? 'Processing...' : isRegister ? 'Submit for Warden Approval' : 'Sign In'}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // 4. STAFF & SECURITY GATEWAY (ROLE TOGGLE SWITCH)
+    function StaffLoginView({ onLogin, setView }) {
+      const [roleToggle, setRoleToggle] = useState('SECURITY');
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [err, setErr] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setErr(''); setLoading(true);
+
+        try {
+          const res = await client.post('/auth/login', { email: email.trim().toLowerCase(), password: password });
+          const user = res.data.user;
+
+          if (roleToggle === 'SECURITY' && (user.role === 'SECURITY' || user.role === 'ADMIN')) {
+            onLogin(user, res.data.access_token);
+          } else if (roleToggle === 'ADMIN' && user.role === 'ADMIN') {
+            onLogin(user, res.data.access_token);
+          } else {
+            setErr(`Role mismatch: Account is registered as ${user.role}. Please toggle to the appropriate role.`);
+          }
+        } catch (e) {
+          let d = e.response?.data?.detail;
+          setErr(typeof d === 'string' ? d : 'Invalid staff credentials');
+        } finally { setLoading(false); }
+      };
+
+      return (
+        <div className="max-w-md mx-auto py-8 space-y-6">
+          <div className="text-center space-y-2">
+            <h2 className="text-3xl font-extrabold text-white font-heading">Staff & Security Gateway</h2>
+            <p className="text-xs text-slate-400">Duty role login for security gate desk and warden administrators.</p>
+          </div>
+
+          <div className="bg-slate-900 p-1.5 rounded-2xl border border-slate-800 flex gap-1">
+            <button
+              onClick={() => setRoleToggle('SECURITY')}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${roleToggle === 'SECURITY' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400'}`}
+            >
+              🛡️ Security Desk
+            </button>
+            <button
+              onClick={() => setRoleToggle('ADMIN')}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${roleToggle === 'ADMIN' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400'}`}
+            >
+              👑 Warden / Admin
+            </button>
+          </div>
+
+          {err && <div className="p-4 bg-rose-500/20 text-rose-300 text-xs rounded-2xl border border-rose-500/30 font-semibold">{err}</div>}
+
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl">
+            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase">Staff Email *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder={roleToggle === 'SECURITY' ? 'security@hostel.com' : 'admin@hostel.com'}
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase">Password *</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="password123"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full font-bold py-3 rounded-xl text-sm shadow-lg text-white ${roleToggle === 'SECURITY' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-purple-600 hover:bg-purple-500'}`}
+              >
+                {loading ? 'Authenticating...' : `Access ${roleToggle === 'SECURITY' ? 'Security Desk' : 'Warden Admin'}`}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // 5. PUBLIC VISITOR PASS APPLICATION VIEW
+    function PublicPassView({ setView }) {
+      const [students, setStudents] = useState([]);
+      const [name, setName] = useState('');
+      const [phone, setPhone] = useState('');
+      const [phoneErr, setPhoneErr] = useState('');
+      const [govIdType, setGovIdType] = useState('AADHAAR');
+      const [govIdNum, setGovIdNum] = useState('');
+      const [studentId, setStudentId] = useState('');
+      const [purpose, setPurpose] = useState('');
+
+      const [submitted, setSubmitted] = useState(null);
+      const [error, setError] = useState(null);
+      const [valErr, setValErr] = useState('');
+
+      useEffect(() => {
+        client.get('/students/public').then(res => {
+          setStudents(res.data);
+          if (res.data.length > 0) setStudentId(res.data[0].id.toString());
+        }).catch(console.error);
+      }, []);
+
+      const validatePhone = (v) => {
+        const cleaned = v.replace(/\D/g, '').slice(0, 10);
+        setPhone(cleaned);
+        if (cleaned.length > 0 && !/^[6-9]\d{9}$/.test(cleaned)) {
+          setPhoneErr('Must be a valid 10-digit mobile number starting with 6-9');
+          return false;
+        } else {
+          setPhoneErr('');
+          return true;
+        }
+      };
+
+      const validateId = (t, num) => {
+        const rule = GOV_ID_PATTERNS[t];
+        if (rule && !rule.pattern.test(num.trim().toUpperCase())) {
+          setValErr(`Invalid format for ${t}. Expected ${rule.example}`);
+          return false;
+        }
+        setValErr('');
+        return true;
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError(null);
+        
+        if (!/^[6-9]\d{9}$/.test(phone)) {
+          setPhoneErr('Must be a valid 10-digit mobile number starting with 6-9');
+          setError('Please enter a valid 10-digit mobile number starting with 6-9 before submitting.');
+          return;
+        }
+
+        if (!validateId(govIdType, govIdNum)) return;
+
+        try {
+          const res = await client.post('/visitors/requests', {
+            visitor: { full_name: name.trim(), phone: phone.trim(), gov_id_type: govIdType, gov_id_number: govIdNum.trim() },
+            student_id: parseInt(studentId),
+            purpose: purpose.trim()
+          });
+          setSubmitted(res.data);
+        } catch (err) {
+          let d = err.response?.data?.detail;
+          if (typeof d !== 'string' && Array.isArray(d)) {
+            d = d.map(x => x.msg?.replace('Value error, ', '') || 'Invalid field').join(', ');
+          }
+          setError(d || 'Failed to submit visitor request.');
+        }
+      };
+
+      return (
+        <div className="max-w-3xl mx-auto space-y-6 py-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-extrabold text-white font-heading">Apply for Visitor Entry Pass</h1>
+            <p className="text-slate-400 text-xs">Submit visitor details for host student approval.</p>
+          </div>
+
+          {submitted ? (
+            <div className="glass-panel p-8 rounded-3xl border border-emerald-500/40 text-center space-y-6 shadow-2xl">
+              <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto text-3xl">
+                ✅
+              </div>
+              <h2 className="text-2xl font-bold text-white">Pass Request Submitted!</h2>
+              <p className="text-xs text-slate-300">Sent to host student <strong className="text-sky-300">{submitted.student?.full_name}</strong> (Room {submitted.student?.room_no}).</p>
+              
+              <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800 text-left text-xs space-y-2">
+                <div>Visitor Name: <strong className="text-white">{submitted.visitor?.full_name}</strong></div>
+                <div>Status: <strong className="text-amber-400">PENDING STUDENT APPROVAL</strong></div>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button onClick={() => setView('track-pass')} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl text-xs">
+                  Track Pass Key Status &rarr;
+                </button>
+                <button onClick={() => { setSubmitted(null); setName(''); setPhone(''); setGovIdNum(''); setPurpose(''); }} className="flex-1 bg-slate-800 text-slate-300 font-bold py-3 rounded-xl text-xs">
+                  Submit Another
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 shadow-2xl">
+              {error && <div className="mb-4 p-3 bg-rose-500/20 text-rose-300 text-xs rounded-xl border border-rose-500/30 font-semibold">{error}</div>}
+
+              <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase mb-1">1. Host Student to Visit *</label>
+                  <select value={studentId} onChange={e => setStudentId(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white">
+                    {students.map(st => (
+                      <option key={st.id} value={st.id}>{st.full_name} (Room {st.room_no || 'N/A'}) {st.is_available ? '• Available' : '• UNAVAILABLE'}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-slate-300 font-bold uppercase mb-1">Visitor Full Name *</label>
+                    <input type="text" required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ramesh Kumar" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-bold uppercase mb-1">10-Digit Phone *</label>
+                    <input
+                      type="tel"
+                      required
+                      pattern="[6-9][0-9]{9}"
+                      maxLength={10}
+                      inputMode="numeric"
+                      value={phone}
+                      onChange={e => validatePhone(e.target.value)}
+                      placeholder="e.g. 9876543210"
+                      className={`w-full bg-slate-900 border rounded-xl px-4 py-2.5 text-sm text-white ${phoneErr ? 'border-rose-500' : 'border-slate-700'}`}
+                    />
+                    {phoneErr ? (
+                      <p className="text-[11px] text-rose-400 mt-1 font-medium">{phoneErr}</p>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 mt-1">10 digits starting with 6-9</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-slate-300 font-bold uppercase mb-1">Gov ID Type *</label>
+                    <select value={govIdType} onChange={e => setGovIdType(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white">
+                      <option value="AADHAAR">Aadhaar Card</option>
+                      <option value="PAN">PAN Card</option>
+                      <option value="PASSPORT">Passport</option>
+                      <option value="DL">Driving License</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-slate-300 font-bold uppercase mb-1">Gov ID Number *</label>
+                    <input type="text" required value={govIdNum} onChange={e => setGovIdNum(e.target.value.toUpperCase())} placeholder={GOV_ID_PATTERNS[govIdType]?.example} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white font-mono uppercase" />
+                    {valErr && <p className="text-[11px] text-rose-400 mt-1 font-semibold">{valErr}</p>}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase mb-1">Visit Purpose *</label>
+                  <textarea rows={3} required value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="State exact purpose of visit..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white"></textarea>
+                </div>
+
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-sm shadow-lg shadow-emerald-600/20">
+                  Submit Visit Pass Application
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 6. STUDENT DASHBOARD VIEW
+    function StudentView({ user, setQrModalPass }) {
+      const [requests, setRequests] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      const load = () => {
+        client.get('/students/me/requests').then(res => setRequests(res.data)).catch(console.error).finally(() => setLoading(false));
+      };
+
+      useEffect(() => {
+        load();
+        const t = setInterval(load, 5000);
+        return () => clearInterval(t);
+      }, []);
+
+      const approve = async (id) => {
+        try {
+          const res = await client.patch(`/requests/${id}/approve`);
+          setQrModalPass(res.data);
+          load();
+        } catch(e) { alert(e.response?.data?.detail || 'Approval failed'); }
+      };
+
+      const reject = async (id) => {
+        try {
+          await client.patch(`/requests/${id}/reject`);
+          load();
+        } catch(e) { alert('Rejection failed'); }
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto space-y-6 py-4">
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 flex justify-between items-center">
+            <div>
+              <span className="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-semibold">🎓 Resident Student Dashboard</span>
+              <h1 className="text-2xl font-extrabold text-white mt-1">Welcome, {user.full_name}</h1>
+              <p className="text-xs text-slate-400">Room {user.room_no} ({user.hostel_block || 'Block A'})</p>
+            </div>
+            <button onClick={load} className="px-3 py-1.5 bg-slate-800 text-xs text-sky-400 font-bold rounded-xl border border-slate-700">Refresh</button>
+          </div>
+
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold text-white">Incoming Visitor Pass Requests</h2>
+            {loading ? <div className="text-xs text-slate-400">Loading requests...</div> : requests.length === 0 ? (
+              <div className="glass-card p-8 rounded-2xl text-center text-slate-500 text-xs">No visitor requests received yet.</div>
+            ) : (
+              <div className="space-y-3">
+                {requests.map(req => (
+                  <div key={req.id} className="glass-card p-5 rounded-2xl border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs">
+                    <div>
+                      <div className="font-bold text-white text-sm">{req.visitor?.full_name} ({req.visitor?.phone})</div>
+                      <div className="text-slate-400">Purpose: {req.purpose}</div>
+                      <div className="text-slate-500 text-[11px]">Requested: {new Date(req.requested_at).toLocaleString()}</div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      {req.status === 'PENDING' ? (
+                        <>
+                          <button onClick={() => reject(req.id)} className="flex-1 sm:flex-none px-4 py-2 bg-rose-500/20 text-rose-300 font-bold rounded-xl">Reject</button>
+                          <button onClick={() => approve(req.id)} className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow-lg">Approve Pass</button>
+                        </>
+                      ) : (
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${req.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                          {req.status} {req.pass_code ? `(${req.pass_code})` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // 7. SECURITY DESK VIEW
+    function SecurityView() {
+      const [code, setCode] = useState('');
+      const [data, setData] = useState(null);
+      const [msg, setMsg] = useState('');
+      const [err, setErr] = useState('');
+      const [govIdVerified, setGovIdVerified] = useState(true);
+      const [overrideNote, setOverrideNote] = useState('');
+
+      const lookup = async (e) => {
+        if(e) e.preventDefault();
+        setMsg(''); setErr(''); setData(null);
+        try {
+          const res = await client.get(`/security/lookup/${code.trim().toUpperCase()}`);
+          setData(res.data);
+        } catch (e) {
+          let d = e.response?.data?.detail;
+          setErr(typeof d === 'string' ? d : 'Passcode not found');
+        }
+      };
+
+      const doCheckin = async (override = false) => {
+        if (!govIdVerified) { setErr('⚠️ Physical Gov ID Verification checkbox must be checked.'); return; }
+        try {
+          const res = await client.post('/security/checkin', {
+            pass_code: code.trim().toUpperCase(),
+            gov_id_verified: govIdVerified,
+            override_student_unavailable: override,
+            override_note: overrideNote
+          });
+          setMsg(`✅ CHECK-IN SUCCESSFUL at ${new Date(res.data.check_in_time).toLocaleTimeString()}`);
+          setOverrideNote('');
+          lookup();
+        } catch(e) {
+          let d = e.response?.data?.detail;
+          setErr(typeof d === 'string' ? d : 'Checkin failed');
+        }
+      };
+
+      const doCheckout = async () => {
+        try {
+          const res = await client.post('/security/checkout', { pass_code: code.trim().toUpperCase() });
+          setMsg(`✅ CHECK-OUT SUCCESSFUL. Duration: ${res.data.duration_minutes} mins`);
+          lookup();
+        } catch(e) {
+          let d = e.response?.data?.detail;
+          setErr(typeof d === 'string' ? d : 'Checkout failed');
+        }
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto space-y-6 py-4">
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 flex justify-between items-center">
+            <div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold">🛡️ Security Gate 1 Desk</span>
+              <h1 className="text-2xl font-extrabold text-white mt-1">Pass Verification Desk</h1>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setCode('PASS01')} className="px-2.5 py-1 bg-amber-500/20 text-amber-300 text-xs font-bold rounded">PASS01</button>
+              <button onClick={() => setCode('PASS02')} className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-bold rounded">PASS02</button>
+              <button onClick={() => setCode('PASS03')} className="px-2.5 py-1 bg-rose-500/20 text-rose-300 text-xs font-bold rounded">PASS03</button>
+            </div>
+          </div>
+
+          <form onSubmit={lookup} className="flex gap-3">
+            <input type="text" value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="Enter 6-char Passcode (e.g. PASS02)" className="flex-1 bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3 text-lg font-mono tracking-widest text-white uppercase" />
+            <button type="submit" className="bg-sky-500 hover:bg-sky-400 text-white font-bold px-6 py-3 rounded-2xl text-sm shadow-lg shadow-sky-500/20">Lookup</button>
+          </form>
+
+          {err && <div className="p-3 bg-rose-500/20 text-rose-300 text-xs rounded-xl border border-rose-500/30 font-semibold">{err}</div>}
+          {msg && <div className="p-3 bg-emerald-500/20 text-emerald-300 text-xs rounded-xl border border-emerald-500/30 font-bold">{msg}</div>}
+
+          {data && (
+            <div className="glass-panel p-6 rounded-3xl border border-sky-500/30 space-y-6 shadow-2xl">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+                <div>
+                  <div className="text-xs text-slate-400">Pass Code</div>
+                  <div className="text-3xl font-black font-mono text-sky-400">{data.request?.pass_code}</div>
+                </div>
+                <div className="flex gap-2">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${data.request?.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>{data.request?.status}</span>
+                  {data.has_active_checkin && <span className="px-3 py-1 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 animate-pulse">CHECKED IN</span>}
+                </div>
+              </div>
+
+              {!data.student_available && (
+                <div className="p-4 bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs rounded-xl font-bold">
+                  ⚠️ Host Student Unavailable (Room {data.student_room || 'N/A'}, {data.student_block || 'Block A'}). Physical ID verification and security note entry are required for override check-in audit.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800 space-y-1">
+                  <div className="font-bold text-sky-400 uppercase">Visitor Document</div>
+                  <div>Name: <strong className="text-white">{data.request?.visitor?.full_name}</strong></div>
+                  <div>Phone: <strong className="text-white">{data.request?.visitor?.phone}</strong></div>
+                  <div>Gov ID: <strong className="text-emerald-400 font-mono">{data.request?.visitor?.gov_id_type}: {data.request?.visitor?.gov_id_number}</strong></div>
+                </div>
+
+                <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800 space-y-1">
+                  <div className="font-bold text-sky-400 uppercase">Host Student</div>
+                  <div>Name: <strong className="text-white">{data.request?.student?.full_name}</strong></div>
+                  <div>Room & Block: <strong className="text-sky-300">Room {data.student_room} ({data.student_block || 'Block A'})</strong></div>
+                  <div>Status: {data.student_available ? '🟢 Available' : '🔴 Unavailable'}</div>
+                </div>
+              </div>
+
+              {data.can_checkin && (
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
+                  <label className="flex items-center gap-2 text-slate-100 font-bold cursor-pointer">
+                    <input type="checkbox" checked={govIdVerified} onChange={e => setGovIdVerified(e.target.checked)} className="w-4 h-4 rounded text-sky-500" />
+                    [x] Physical Gov ID Verified & Matched ({data.request?.visitor?.gov_id_type})
+                  </label>
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Security Remarks / Override Note</label>
+                    <input type="text" value={overrideNote} onChange={e => setOverrideNote(e.target.value)} placeholder="e.g. Verified physical Aadhaar at Gate 1 desk." className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white" />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex gap-3">
+                {data.can_checkin && (
+                  !data.student_available ? (
+                    <button onClick={() => doCheckin(true)} disabled={!govIdVerified} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl text-xs disabled:opacity-50">Override & Execute Check-In</button>
+                  ) : (
+                    <button onClick={() => doCheckin(false)} disabled={!govIdVerified} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-xs disabled:opacity-50">Execute Visitor Check-In</button>
+                  )
+                )}
+
+                {data.can_checkout && (
+                  <button onClick={doCheckout} className="w-full bg-rose-600 hover:bg-rose-500 text-white font-bold py-3 rounded-xl text-xs">Execute Visitor Check-Out</button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 8. WARDEN ADMIN VIEW (WITH 1-CLICK EMERGENCY BROADCAST MODAL & OVERSTAY ALERT BUTTONS)
+    function AdminView() {
+      const [activeList, setActiveList] = useState([]);
+      const [overstays, setOverstays] = useState([]);
+      const [pendingStudents, setPendingStudents] = useState([]);
+      const [stats, setStats] = useState(null);
+      const [tab, setTab] = useState('active'); // active, overstays, pending-students, reports
+
+      // Emergency Broadcast Modal State
+      const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+      const [emergencyTitle, setEmergencyTitle] = useState('🚨 EMERGENCY BROADCAST ALERT');
+      const [emergencyMsg, setEmergencyMsg] = useState('ATTENTION ALL RESIDENTS & SECURITY: Immediate emergency alert / notice broadcasted by Warden Desk.');
+      const [sendingEmergency, setSendingEmergency] = useState(false);
+
+      const [reportData, setReportData] = useState({ period: 'all', summary: {}, logs: [] });
+      const [reportPeriod, setReportPeriod] = useState('all');
+      const [fromDate, setFromDate] = useState('');
+      const [toDate, setToDate] = useState('');
+      const [msg, setMsg] = useState('');
+
+      const loadData = () => {
+        client.get('/admin/active').then(r => setActiveList(r.data)).catch(console.error);
+        client.get('/admin/overstays').then(r => setOverstays(r.data)).catch(console.error);
+        client.get('/admin/stats').then(r => setStats(r.data)).catch(console.error);
+      };
+
+      useEffect(() => {
+        loadData();
+        const timer = setInterval(loadData, 10000);
+        return () => clearInterval(timer);
+      }, []);
+
+      useEffect(() => {
+        if (tab === 'pending-students') {
+          client.get('/admin/pending-students').then(r => setPendingStudents(r.data)).catch(console.error);
+        } else if (tab === 'reports') {
+          let url = `/admin/reports?period=${reportPeriod}`;
+          if (fromDate) url += `&from_date=${fromDate}`;
+          if (toDate) url += `&to_date=${toDate}`;
+          client.get(url).then(r => setReportData(r.data)).catch(console.error);
+        }
+      }, [tab, reportPeriod, fromDate, toDate]);
+
+      const handleApproveStudent = async (id, action) => {
+        try {
+          const res = await client.patch(`/admin/approve-student/${id}?action=${action}`);
+          setMsg(`✅ ${res.data.message}`);
+          client.get('/admin/pending-students').then(r => setPendingStudents(r.data));
+          loadData();
+        } catch(e) { alert('Action failed'); }
+      };
+
+      const handleTriggerNotif = async (reqId) => {
+        try {
+          const res = await client.post(`/notifications/trigger-overstay/${reqId}`);
+          setMsg(`🚨 OVERSTAY ALERT DISPATCHED: ${res.data.message}`);
+        } catch(e) { alert('Notification trigger failed'); }
+      };
+
+      const handleBroadcastEmergency = async (e) => {
+        e.preventDefault();
+        if (!emergencyMsg.trim()) return;
+        setSendingEmergency(true);
+        try {
+          const res = await client.post('/admin/broadcast-emergency', {
+            title: emergencyTitle,
+            message: emergencyMsg.trim()
+          });
+          setMsg(`🚨 EMERGENCY ALERT BROADCASTED: ${res.data.message}`);
+          setShowEmergencyModal(false);
+        } catch (err) {
+          alert('Failed to broadcast emergency alert');
+        } finally {
+          setSendingEmergency(false);
+        }
+      };
+
+      const forceCheckout = async (id) => {
+        if (!confirm('Force checkout this visitor?')) return;
+        try {
+          await client.post(`/admin/force-checkout/${id}`);
+          loadData();
+        } catch(e){ alert('Failed'); }
+      };
+
+      const exportCSV = () => {
+        const logs = reportData.logs || [];
+        if(!logs.length) return;
+        const headers = ['ID', 'Pass Code', 'Visitor Name', 'Phone', 'Gov ID', 'Host Student', 'Room', 'Block', 'Purpose', 'Check-In', 'Check-Out', 'Duration', 'Overstayed'];
+        const rows = logs.map(r => [
+          r.id, r.pass_code || '', `"${r.visitor_name}"`, `"${r.visitor_phone}"`, `${r.gov_id_type}:${r.gov_id_number}`, `"${r.student_name}"`, `"${r.room_no}"`, `"${r.hostel_block}"`, `"${(r.purpose||'').replace(/"/g, '""')}"`, r.check_in_time, r.check_out_time||'Active', r.duration_minutes, r.is_overstayed ? 'YES' : 'NO'
+        ]);
+        const csv = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `warden_report_${reportPeriod}.csv`; a.click();
+      };
+
+      return (
+        <div className="space-y-6 py-4">
+          
+          {/* Warden Admin Header Banner */}
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <span className="px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 text-xs font-semibold border border-purple-500/20">👑 Warden Executive Field</span>
+              <h1 className="text-2xl font-extrabold text-white mt-1 font-heading">Hostel Visitor Operations & Emergency Control</h1>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* EMERGENCY BROADCAST BUTTON IN WARDEN FIELD */}
+              <button
+                onClick={() => setShowEmergencyModal(true)}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-xs shadow-lg shadow-rose-600/30 transition-all border border-rose-400/40 animate-pulse flex items-center gap-2"
+              >
+                📢 🚨 Broadcast 1-Click Emergency Alert
+              </button>
+
+              <button onClick={loadData} className="px-3 py-2 bg-slate-800 text-xs text-sky-400 font-bold rounded-xl border border-slate-700">Refresh Stream</button>
+            </div>
+          </div>
+
+          {msg && <div className="p-4 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold rounded-2xl animate-fade-in">{msg}</div>}
+
+          {stats && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="glass-card p-3.5 rounded-2xl border border-slate-800">
+                <div className="text-[10px] text-slate-400 font-bold uppercase">Currently Inside</div>
+                <div className="text-2xl font-black text-white">{stats.currently_inside}</div>
+              </div>
+              <div className="glass-card p-3.5 rounded-2xl border border-rose-500/50 bg-rose-500/10">
+                <div className="text-[10px] text-slate-400 font-bold uppercase">Overstays</div>
+                <div className="text-2xl font-black text-rose-400">{stats.total_overstays_today}</div>
+              </div>
+              <div className="glass-card p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10">
+                <div className="text-[10px] text-slate-400 font-bold uppercase">Pending Students</div>
+                <div className="text-2xl font-black text-amber-400">{stats.pending_student_registrations}</div>
+              </div>
+              <div className="glass-card p-3.5 rounded-2xl border border-slate-800">
+                <div className="text-[10px] text-slate-400 font-bold uppercase">Today Requests</div>
+                <div className="text-2xl font-black text-white">{stats.total_requests_today}</div>
+              </div>
+              <div className="glass-card p-3.5 rounded-2xl border border-slate-800">
+                <div className="text-[10px] text-slate-400 font-bold uppercase">Pending Passes</div>
+                <div className="text-2xl font-black text-sky-400">{stats.pending_approvals}</div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex border-b border-slate-800 gap-2">
+            <button onClick={() => setTab('active')} className={`px-4 py-2 text-xs font-bold border-b-2 ${tab === 'active' ? 'border-sky-500 text-sky-400 bg-sky-500/10' : 'text-slate-400'}`}>Active Visitors (Emergency Headcount) ({activeList.length})</button>
+            <button onClick={() => setTab('overstays')} className={`px-4 py-2 text-xs font-bold border-b-2 ${tab === 'overstays' ? 'border-rose-500 text-rose-400 bg-rose-500/10' : 'text-slate-400'}`}>Overstays ({overstays.length})</button>
+            <button onClick={() => setTab('pending-students')} className={`px-4 py-2 text-xs font-bold border-b-2 ${tab === 'pending-students' ? 'border-amber-500 text-amber-400 bg-amber-500/10' : 'text-slate-400'}`}>Student Approvals ({stats?.pending_student_registrations || 0})</button>
+            <button onClick={() => setTab('reports')} className={`px-4 py-2 text-xs font-bold border-b-2 ${tab === 'reports' ? 'border-purple-500 text-purple-400 bg-purple-500/10' : 'text-slate-400'}`}>Period Reports</button>
+          </div>
+
+          {tab === 'active' && (
+            <div className="space-y-4">
+              
+              {/* EMERGENCY BANNER IN ACTIVE VISITORS TAB */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950 via-slate-900 to-indigo-950 border border-rose-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="font-extrabold text-white text-sm">Emergency Broadcast Control</div>
+                  <div className="text-xs text-slate-300">Broadcast immediate emergency warning to all resident students and security guards.</div>
+                </div>
+
+                <button
+                  onClick={() => setShowEmergencyModal(true)}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-xs shadow-lg shadow-rose-600/30 transition-all border border-rose-400/40 shrink-0"
+                >
+                  📢 🚨 Broadcast 1-Click Emergency Alert
+                </button>
+              </div>
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-900 text-slate-400 uppercase">
+                    <tr>
+                      <th className="py-3 px-4">Pass Code</th>
+                      <th className="py-3 px-4">Visitor</th>
+                      <th className="py-3 px-4">Gov ID</th>
+                      <th className="py-3 px-4">Host Student</th>
+                      <th className="py-3 px-4">Duration</th>
+                      <th className="py-3 px-4 text-right">Emergency Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {activeList.map(row => (
+                      <tr key={row.check_log_id} className={row.is_overstayed ? 'overstay-row-highlight' : ''}>
+                        <td className="py-3.5 px-4 font-mono font-bold text-sky-400">{row.pass_code}</td>
+                        <td className="py-3.5 px-4 font-bold text-white">{row.visitor_name} ({row.visitor_phone})</td>
+                        <td className="py-3.5 px-4 font-mono">{row.gov_id_type}: {row.gov_id_number}</td>
+                        <td className="py-3.5 px-4">{row.student_name} (Rm {row.student_room})</td>
+                        <td className="py-3.5 px-4">
+                          {row.is_overstayed ? (
+                            <span className="px-2.5 py-1 rounded-full bg-rose-600 text-white font-black text-xs animate-pulse">OVERSTAY ({row.duration_minutes}m)</span>
+                          ) : (
+                            <span className="font-mono">{row.duration_minutes} mins</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-2">
+                          {/* OVERSTAY ALERT BUTTON */}
+                          {row.is_overstayed && (
+                            <button onClick={() => handleTriggerNotif(row.request_id)} className="px-3 py-1.5 bg-gradient-to-r from-rose-600 to-amber-600 text-white text-xs font-extrabold rounded-xl shadow border border-rose-400/40">
+                              🚨 Send Overstay Alert
+                            </button>
+                          )}
+                          <button onClick={() => forceCheckout(row.check_log_id)} className="px-3 py-1.5 bg-slate-800 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700">Force Checkout</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {tab === 'overstays' && (
+            <div className="overflow-x-auto rounded-2xl border border-rose-500/30">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-rose-950 text-rose-200 uppercase">
+                  <tr>
+                    <th className="py-3 px-4">Passcode</th>
+                    <th className="py-3 px-4">Visitor</th>
+                    <th className="py-3 px-4">Host Student</th>
+                    <th className="py-3 px-4">Elapsed Time</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-rose-500/20">
+                  {overstays.map(row => (
+                    <tr key={row.check_log_id} className="bg-rose-950/20">
+                      <td className="py-3.5 px-4 font-mono font-bold text-rose-300">{row.pass_code}</td>
+                      <td className="py-3.5 px-4 font-bold text-white">{row.visitor_name}</td>
+                      <td className="py-3.5 px-4">{row.student_name} (Rm {row.student_room})</td>
+                      <td className="py-3.5 px-4 text-rose-400 font-extrabold">{row.duration_minutes} mins</td>
+                      <td className="py-3.5 px-4 text-right space-x-2">
+                        <button onClick={() => handleTriggerNotif(row.request_id)} className="px-3 py-1.5 bg-gradient-to-r from-rose-600 to-amber-600 text-white text-xs font-extrabold rounded-xl shadow border border-rose-400/40">
+                          🚨 Send Overstay Alert
+                        </button>
+                        <button onClick={() => forceCheckout(row.check_log_id)} className="px-3 py-1.5 bg-slate-800 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700">Force Checkout</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 'pending-students' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-amber-500/20 text-amber-300 text-xs rounded-xl font-bold">
+                Student Account Approvals Queue: Unapproved accounts are blocked (403 Forbidden) from logging in until approved below.
+              </div>
+
+              {pendingStudents.length === 0 ? (
+                <div className="glass-card p-6 rounded-2xl text-center text-slate-500 text-xs">No pending student registrations.</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  {pendingStudents.map(st => (
+                    <div key={st.id} className="glass-card p-4 rounded-2xl border border-slate-800 space-y-2">
+                      <div className="font-bold text-white text-sm">{st.full_name}</div>
+                      <div className="text-slate-400">{st.email} • 📞 {st.phone}</div>
+                      <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-slate-300">
+                        Room: <strong className="text-sky-300">{st.room_no}</strong> ({st.hostel_block || 'Block A'})
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button onClick={() => handleApproveStudent(st.id, 'reject')} className="py-2 bg-rose-500/20 text-rose-300 font-bold rounded-xl">Reject</button>
+                        <button onClick={() => handleApproveStudent(st.id, 'approve')} className="py-2 bg-emerald-500/20 text-emerald-300 font-bold rounded-xl">Approve Account</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'reports' && (
+            <div className="space-y-4 text-xs">
+              <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex flex-wrap justify-between items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 uppercase font-bold">Period</label>
+                    <select value={reportPeriod} onChange={e => setReportPeriod(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white">
+                      <option value="all">All Time</option>
+                      <option value="daily">Daily Report (Today)</option>
+                      <option value="monthly">Monthly Report (This Month)</option>
+                      <option value="custom">Custom Range</option>
+                    </select>
+                  </div>
+
+                  {reportPeriod === 'custom' && (
+                    <>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold">From</label>
+                        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold">To</label>
+                        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-white" />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <button onClick={exportCSV} disabled={!reportData.logs?.length} className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow-lg disabled:opacity-50">
+                  Export CSV Report
+                </button>
+              </div>
+
+              {reportData.summary && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="text-slate-400 text-[10px]">Total Entries</div>
+                    <div className="text-lg font-bold text-white">{reportData.summary.total_entries || 0}</div>
+                  </div>
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="text-slate-400 text-[10px]">Completed Exits</div>
+                    <div className="text-lg font-bold text-emerald-400">{reportData.summary.completed_exits || 0}</div>
+                  </div>
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="text-slate-400 text-[10px]">Active Inside</div>
+                    <div className="text-lg font-bold text-sky-400">{reportData.summary.active_inside || 0}</div>
+                  </div>
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="text-slate-400 text-[10px]">Overstay Count</div>
+                    <div className="text-lg font-bold text-rose-400">{reportData.summary.overstay_count || 0}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                <table className="w-full text-left text-slate-300">
+                  <thead className="bg-slate-900 text-slate-400 uppercase">
+                    <tr>
+                      <th className="py-2.5 px-3">Pass Code</th>
+                      <th className="py-2.5 px-3">Visitor</th>
+                      <th className="py-2.5 px-3">Gov ID</th>
+                      <th className="py-2.5 px-3">Host Student</th>
+                      <th className="py-2.5 px-3">Check-In</th>
+                      <th className="py-2.5 px-3">Check-Out</th>
+                      <th className="py-2.5 px-3">Duration</th>
+                      <th className="py-2.5 px-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {(reportData.logs || []).map(r => (
+                      <tr key={r.id}>
+                        <td className="py-2 px-3 font-mono font-bold text-sky-400">{r.pass_code || '—'}</td>
+                        <td className="py-2 px-3 text-white font-semibold">{r.visitor_name}</td>
+                        <td className="py-2 px-3 font-mono">{r.gov_id_type}: {r.gov_id_number}</td>
+                        <td className="py-2 px-3">{r.student_name} (Rm {r.room_no})</td>
+                        <td className="py-2 px-3">{new Date(r.check_in_time).toLocaleString()}</td>
+                        <td className="py-2 px-3">{r.check_out_time ? new Date(r.check_out_time).toLocaleString() : 'Currently Inside'}</td>
+                        <td className="py-2 px-3 font-mono">{r.duration_minutes} mins</td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.is_overstayed ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>{r.is_overstayed ? 'OVERSTAYED' : 'NORMAL'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* EMERGENCY BROADCAST MODAL */}
+          {showEmergencyModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+              <div className="glass-panel p-6 rounded-3xl border border-rose-500/40 shadow-2xl max-w-md w-full bg-slate-900 space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                  <div className="text-rose-400 font-extrabold font-heading text-lg flex items-center gap-2">
+                    📢 Confirm 1-Click Emergency Broadcast
+                  </div>
+                  <button onClick={() => setShowEmergencyModal(false)} className="text-slate-400 hover:text-white font-bold text-sm">✕</button>
+                </div>
+
+                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs leading-relaxed">
+                  ⚠️ <strong>Warning:</strong> This 1-click broadcast will immediately dispatch an emergency notification to all registered resident students and gate security guards.
+                </div>
+
+                <form onSubmit={handleBroadcastEmergency} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1 uppercase">Alert Title</label>
+                    <input
+                      type="text"
+                      required
+                      value={emergencyTitle}
+                      onChange={e => setEmergencyTitle(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1 uppercase">Broadcast Message</label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={emergencyMsg}
+                      onChange={e => setEmergencyMsg(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white"
+                    ></textarea>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowEmergencyModal(false)}
+                      className="py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={sendingEmergency}
+                      className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold shadow-lg shadow-rose-600/30"
+                    >
+                      {sendingEmergency ? 'Broadcasting...' : 'Broadcast Now'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    // QR Code Modal Helper
+    function QrModal({ pass, onClose }) {
+      const qrRef = useRef();
+      useEffect(() => {
+        if (qrRef.current && pass.pass_code) {
+          qrRef.current.innerHTML = '';
+          new QRCode(qrRef.current, { text: pass.pass_code, width: 140, height: 140 });
+        }
+      }, [pass]);
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="glass-panel max-w-sm w-full p-6 rounded-3xl border border-sky-500/30 text-center space-y-4 shadow-2xl relative">
+            <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
+            <h3 className="text-xl font-bold text-white">Visitor Pass Generated!</h3>
+            <div className="p-4 bg-sky-500/10 border border-sky-500/30 rounded-2xl">
+              <div className="text-xs text-sky-400 uppercase font-semibold">Gate Pass Code</div>
+              <div className="text-3xl font-black font-mono text-white tracking-widest">{pass.pass_code}</div>
+            </div>
+            <div className="bg-white p-3 rounded-2xl inline-block" ref={qrRef}></div>
+            <div className="text-xs text-slate-400">Visitor: <strong className="text-white">{pass.visitor?.full_name}</strong></div>
+            <button onClick={onClose} className="w-full bg-slate-800 text-white font-bold py-2 rounded-xl text-xs">Done</button>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
